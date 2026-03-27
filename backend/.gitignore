@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# SQLite DB file (don't push data to git)
+src/db/*.db
+
+# Environment files (never push secrets)
+.env
+
+# Uploads
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
