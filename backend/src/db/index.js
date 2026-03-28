@@ -2,7 +2,12 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },   // always on — required by Supabase
+  max: 3,                                // low for free tier (Supabase allows 15 pooler connections)
+  min: 0,
+  connectionTimeoutMillis: 10000,        // fail fast if can't connect in 10s
+  idleTimeoutMillis: 30000,
+  statement_timeout: 30000,
 });
 
 // Promisified helpers matching the sqlite3 API surface
