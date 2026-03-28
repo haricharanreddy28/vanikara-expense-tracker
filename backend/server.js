@@ -5,11 +5,19 @@ const path = require('path');
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }));
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim());
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+    else cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.resolve('./uploads')));
 
+app.use('/api/setup',         require('./src/routes/setup'));
 app.use('/api/auth',           require('./src/routes/auth'));
 app.use('/api/users',          require('./src/routes/users'));
 app.use('/api/expenses',       require('./src/routes/expenses'));

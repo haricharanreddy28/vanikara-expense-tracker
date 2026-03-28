@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { run, get, all } = require('../db');
+const { all, get, run } = require('../db');
 const auth = require('../middleware/auth');
 const { sendExpenseNotification } = require('../services/emailService');
 
@@ -8,61 +8,48 @@ const { sendExpenseNotification } = require('../services/emailService');
 router.post('/', auth, async (req, res, next) => {
   try {
     const { amount, reason, isCustomSplit, customSplits } = req.body;
-    if (!amount || !reason) return res.status(400).json({ error: 'Amount and reason are required' });
+    if (!amount || !reason) return res.status(400).json({ error: 'amount and reason are required' });
     if (amount <= 0) return res.status(400).json({ error: 'Amount must be positive' });
 
-    const directors = await all('SELECT id, name, email, share_percentage FROM users');
+    const directors = await all('SELECT id, name, share_percentage FROM users ORDER BY id');
 
     let splits;
-    if (isCustomSplit) {
-      if (!customSplits || customSplits.length !== directors.length)
-        return res.status(400).json({ error: 'Custom splits must cover all directors' });
-      const total = customSplits.reduce((s, c) => s + parseFloat(c.percentage), 0);
+    if (isCustomSplit && customSplits) {
+      const total = customSplits.reduce((s, c) => s + parseFloat(c.percentage || 0), 0);
       if (Math.abs(total - 100) > 0.01)
-        return res.status(400).json({ error: 'Custom splits must sum to 100%' });
-      splits = directors.map((d) => {
-        const cs = customSplits.find((c) => c.userId === d.id);
-        if (!cs) throw Object.assign(new Error(`No split for director ${d.id}`), { status: 400 });
-        return { ...d, percentage: parseFloat(cs.percentage), amount: (amount * parseFloat(cs.percentage)) / 100 };
+        return res.status(400).json({ error: `Custom splits must total 100% (got ${total.toFixed(1)}%)` });
+      splits = customSplits.map(c => {
+        const user = directors.find(d => d.id === c.userId);
+        return { userId: c.userId, name: user?.name, percentage: parseFloat(c.percentage), amount: (amount * parseFloat(c.percentage)) / 100 };
       });
     } else {
-      splits = directors.map((d) => ({
-        ...d,
-        percentage: d.share_percentage,
-        amount: (amount * d.share_percentage) / 100,
+      splits = directors.map(d => ({
+        userId: d.id, name: d.name, percentage: d.share_percentage, amount: (amount * d.share_percentage) / 100,
       }));
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const { lastInsertRowid: expenseId } = await run(
-      'INSERT INTO expenses (amount, reason, added_by, date, is_custom_split) VALUES (?, ?, ?, ?, ?)',
-      [amount, reason, req.user.id, today, isCustomSplit ? 1 : 0]
+    const expense = await get(
+      'INSERT INTO expenses (amount, reason, added_by, is_custom_split) VALUES ($1,$2,$3,$4) RETURNING *',
+      [amount, reason, req.user.id, isCustomSplit ? 1 : 0]
     );
 
     for (const s of splits) {
       await run(
-        'INSERT INTO expense_splits (expense_id, user_id, percentage, amount, payment_status) VALUES (?, ?, ?, ?, ?)',
-        [expenseId, s.id, s.percentage, s.amount, 'Pending']
+        'INSERT INTO expense_splits (expense_id, user_id, percentage, amount) VALUES ($1,$2,$3,$4)',
+        [expense.id, s.userId, s.percentage, parseFloat(s.amount.toFixed(2))]
       );
     }
 
     await run(
-      "INSERT INTO audit_logs (action, user_id, details) VALUES ('expense_created', ?, ?)",
-      [req.user.id, JSON.stringify({ expense_id: expenseId, amount, reason })]
+      "INSERT INTO audit_logs (action, user_id, details) VALUES ('expense_created', $1, $2)",
+      [req.user.id, JSON.stringify({ expense_id: expense.id, amount, reason })]
     );
 
-    sendExpenseNotification({
-      reason, totalAmount: amount, addedBy: req.user.name, date: today,
-      splits: splits.map((s) => ({ name: s.name, email: s.email, percentage: s.percentage, amount: s.amount })),
-    }).catch(console.error);
+    const addedBy = await get('SELECT name, email FROM users WHERE id = $1', [req.user.id]);
+    const allUsers = await all('SELECT email FROM users');
+    await sendExpenseNotification(allUsers.map(u => u.email), { amount, reason, addedBy: addedBy.name, splits });
 
-    const expense = await get('SELECT * FROM expenses WHERE id = ?', [expenseId]);
-    const expenseSplits = await all(`
-      SELECT es.*, u.name, u.email FROM expense_splits es
-      JOIN users u ON u.id = es.user_id WHERE es.expense_id = ?
-    `, [expenseId]);
-
-    res.status(201).json({ ...expense, splits: expenseSplits });
+    res.status(201).json({ ...expense, splits });
   } catch (err) { next(err); }
 });
 
@@ -70,29 +57,24 @@ router.post('/', auth, async (req, res, next) => {
 router.get('/', auth, async (req, res, next) => {
   try {
     const expenses = await all(`
-      SELECT e.*, u.name as added_by_name FROM expenses e
-      JOIN users u ON u.id = e.added_by ORDER BY e.created_at DESC
+      SELECT e.*, u.name as added_by_name
+      FROM expenses e
+      JOIN users u ON u.id = e.added_by
+      ORDER BY e.created_at DESC
     `);
-    const splits = await all(`
-      SELECT es.*, u.name, u.email FROM expense_splits es JOIN users u ON u.id = es.user_id
-    `);
-    res.json(expenses.map((e) => ({ ...e, splits: splits.filter((s) => s.expense_id === e.id) })));
-  } catch (err) { next(err); }
-});
 
-// GET /api/expenses/:id
-router.get('/:id', auth, async (req, res, next) => {
-  try {
-    const expense = await get(`
-      SELECT e.*, u.name as added_by_name FROM expenses e
-      JOIN users u ON u.id = e.added_by WHERE e.id = ?
-    `, [req.params.id]);
-    if (!expense) return res.status(404).json({ error: 'Expense not found' });
-    const splits = await all(`
-      SELECT es.*, u.name, u.email FROM expense_splits es
-      JOIN users u ON u.id = es.user_id WHERE es.expense_id = ?
-    `, [req.params.id]);
-    res.json({ ...expense, splits });
+    const result = await Promise.all(expenses.map(async (e) => {
+      const splits = await all(`
+        SELECT es.*, u.name, u.email
+        FROM expense_splits es
+        JOIN users u ON u.id = es.user_id
+        WHERE es.expense_id = $1
+        ORDER BY es.id
+      `, [e.id]);
+      return { ...e, splits };
+    }));
+
+    res.json(result);
   } catch (err) { next(err); }
 });
 

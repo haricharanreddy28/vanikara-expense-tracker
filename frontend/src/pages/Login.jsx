@@ -39,7 +39,7 @@ export default function Login() {
             <input
               className="form-control"
               type="email" required
-              placeholder="director@company.com"
+              placeholder="your@email.com"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
@@ -58,15 +58,6 @@ export default function Login() {
             {loading ? 'Signing in…' : 'Sign In →'}
           </button>
         </form>
-
-        <div style={{ marginTop: 20, padding: '12px', background: '#f9fafb', borderRadius: 8, fontSize: 12 }}>
-          <strong>Demo Logins</strong>
-          <div style={{ marginTop: 6, lineHeight: 1.8, color: '#6b7280' }}>
-            rajesh@company.com | password123<br/>
-            priya@company.com | password123<br/>
-            amit@company.com | password123
-          </div>
-        </div>
       </div>
     </div>
   );

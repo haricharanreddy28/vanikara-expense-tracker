@@ -10,7 +10,7 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-    const user = await get('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const user = await get('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const valid = bcrypt.compareSync(password, user.password_hash);
@@ -24,7 +24,7 @@ router.post('/login', async (req, res, next) => {
 
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, share_percentage: user.share_percentage },
+      user: { id: user.id, name: user.name, email: user.email, share_percentage: user.share_percentage, is_admin: user.is_admin || 0 },
     });
   } catch (err) { next(err); }
 });

@@ -9,6 +9,7 @@ const links = [
   { to: '/share-management',icon: '⚖️', label: 'Shares' },
   { to: '/documents',       icon: '📁', label: 'Documents' },
   { to: '/audit',           icon: '🔍', label: 'Audit Log' },
+  { to: '/admin',           icon: '⚙️', label: 'Admin' },
 ];
 
 export default function Sidebar() {
