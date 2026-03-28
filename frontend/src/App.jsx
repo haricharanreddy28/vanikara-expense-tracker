@@ -34,18 +34,45 @@ function Protected({ children }) {
 }
 
 function AppRoutes() {
-  const [needsSetup, setNeedsSetup] = useState(null); // null = loading
+  const [needsSetup, setNeedsSetup] = useState(null);
+  const [waitSeconds, setWaitSeconds] = useState(0);
+  const [timedOut, setTimedOut] = useState(false);
+
+  const checkSetup = () => {
+    setTimedOut(false);
+    setWaitSeconds(0);
+    api.get('/setup/status', { timeout: 90000 })
+      .then(r => setNeedsSetup(r.data.needsSetup))
+      .catch(() => setTimedOut(true));
+  };
+
+  useEffect(() => { checkSetup(); }, []);
 
   useEffect(() => {
-    api.get('/setup/status')
-      .then(r => setNeedsSetup(r.data.needsSetup))
-      .catch(() => setNeedsSetup(false));
-  }, []);
+    if (needsSetup !== null || timedOut) return;
+    const t = setInterval(() => setWaitSeconds(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [needsSetup, timedOut]);
+
+  if (timedOut) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16, color:'#6b7280' }}>
+        <div style={{ fontSize:40 }}>⚠️</div>
+        <p style={{ fontSize:16 }}>Server took too long to respond.</p>
+        <button className="btn btn-primary" onClick={checkSetup}>🔄 Retry</button>
+      </div>
+    );
+  }
 
   if (needsSetup === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#9ca3af', fontSize: 16 }}>
-        Loading…
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:12, color:'#6b7280' }}>
+        <div style={{ fontSize:40, animation:'spin 1.5s linear infinite' }}>⏳</div>
+        <p style={{ fontSize:16, fontWeight:600, color:'#374151' }}>Starting up server…</p>
+        <p style={{ fontSize:13, textAlign:'center', maxWidth:280 }}>
+          The free server wakes up after inactivity.<br/>This takes <strong>30–60 seconds</strong> on first load.
+        </p>
+        <p style={{ fontSize:20, fontWeight:700, color:'#7c3aed' }}>{waitSeconds}s</p>
       </div>
     );
   }
